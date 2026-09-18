@@ -1,0 +1,70 @@
+name: Windows RDP + Roblox + Discord
+
+on:
+  workflow_dispatch:
+    inputs:
+      rdp_password:
+        description: 'Senha do Windows (mínimo 8 caracteres)'
+        required: true
+        default: 'SenhaForte123'
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Habilitar RDP e definir senha
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+
+          \( Password = ConvertTo-SecureString " \){{ github.event.inputs.rdp_password }}" -AsPlainText -Force
+          Set-LocalUser -Name "runneradmin" -Password $Password
+
+      - name: Instalar Tailscale
+        run: |
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile "$env:TEMP\tailscale.msi"
+          Start-Process msiexec.exe -ArgumentList "/i `"$env:TEMP\tailscale.msi`" /quiet" -Wait
+
+      - name: Conectar Tailscale
+        run: |
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=windows-rdp --accept-dns=false
+          Start-Sleep -Seconds 8
+
+      - name: Instalar Discord
+        run: |
+          Write-Host "Baixando Discord..."
+          Invoke-WebRequest -Uri "https://discord.com/api/downloads/distributions/app/installers/latest?channel=stable&platform=win&arch=x64" -OutFile "$env:TEMP\DiscordSetup.exe"
+          Start-Process -FilePath "$env:TEMP\DiscordSetup.exe" -ArgumentList "/S" -Wait
+          Write-Host "Discord instalado."
+
+      - name: Instalar Roblox
+        run: |
+          Write-Host "Baixando Roblox..."
+          # Baixa o instalador oficial do Roblox
+          Invoke-WebRequest -Uri "https://www.roblox.com/download/client" -OutFile "$env:TEMP\RobloxPlayerLauncher.exe"
+          
+          # Tenta instalar silenciosamente (pode não ser 100% silencioso)
+          Start-Process -FilePath "$env:TEMP\RobloxPlayerLauncher.exe" -ArgumentList "-q" -Wait -ErrorAction SilentlyContinue
+          Write-Host "Roblox baixado. Pode precisar finalizar a instalação manualmente."
+
+      - name: Mostrar informações de conexão
+        run: |
+          $ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          Write-Host "=============================================="
+          Write-Host "Windows pronto!"
+          Write-Host "IP Tailscale: $ip"
+          Write-Host "Porta RDP: 3389"
+          Write-Host "Usuário: runneradmin"
+          Write-Host "Senha: ${{ github.event.inputs.rdp_password }}"
+          Write-Host "=============================================="
+          Write-Host "Conecte com Microsoft Remote Desktop usando: $ip:3389"
+
+      - name: Manter a máquina ligada
+        run: |
+          while ($true) {
+            Write-Host "Máquina ativa - $(Get-Date -Format 'HH:mm:ss')"
+            Start-Sleep -Seconds 300
+          }
